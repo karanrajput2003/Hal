@@ -1,0 +1,86 @@
+const axios = require('axios');
+const fs = require('fs');
+
+// API endpoint configuration
+const api_url = "https://transcribe.whisperapi.com";
+const api_key = "ZDUHZVZG5KUCDLJ7PWRTF8HAB9URN93U";
+
+// Path to the audio file
+const file_path = "output.wav";
+
+// Payload setup for API request
+const payload = {
+    file: fs.createReadStream(file_path),
+    data: {
+        fileType: "YOUR_FILE_TYPE",  // Default is 'wav'.
+        diarization: "false",         // 'True' may slow down processing.
+        numSpeakers: "2",             // Optional: Number of speakers for diarization. If blank, model will auto-detect.
+        // url: "URL_OF_STORED_AUDIO_FILE",  // Use either URL or file, not both.
+        initialPrompt: "",            // Optional: Teach model a phrase. May negatively impact results.
+        language: "en",               // Optional: Language of speech. If blank, model will auto-detect.
+        task: "transcribe",           // Use 'translate' to translate speech from language to English. Transcribe is default.
+        callbackURL: "",              // Optional: Callback URL for results to be sent.
+    }
+};
+
+// Ensure the 'callbackURL' starts with 'https://' and does not include 'www.'
+// The server calls the callback URL once the response is ready.
+
+// Make the API request
+axios.post(api_url, payload.file, {
+    headers: {
+        'Authorization': `Bearer ${api_key}`,
+        'Content-Type': 'audio/wav' // Adjust content type according to your file type
+    },
+    params: payload.data
+})
+.then((response) => {
+    console.log(response.data);
+})
+.catch((error) => {
+    console.error(error);
+});
+
+
+const express = require('express');
+const multer = require('multer');
+const mongoose = require('mongoose');
+
+const app = express();
+const port = 3000;
+
+// Connect to MongoDB
+mongoose.connect('mongodb://localhost:27017/audio_db', { useNewUrlParser: true, useUnifiedTopology: true });
+const db = mongoose.connection;
+db.on('error', console.error.bind(console, 'MongoDB connection error:'));
+db.once('open', () => {
+  console.log('Connected to MongoDB');
+});
+
+// Define schema for audio files
+const audioSchema = new mongoose.Schema({
+  audio: Buffer,
+});
+
+const AudioModel = mongoose.model('Audio', audioSchema);
+
+// Multer configuration for storing audio files
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
+
+// Route for uploading audio files
+app.post('/upload', upload.single('audio'), async (req, res) => {
+  try {
+    const audioData = req.file.buffer; // Uploaded audio file
+    const audio = new AudioModel({ audio: audioData });
+    await audio.save();
+    res.status(200).json({ message: 'Audio saved successfully' });
+  } catch (error) {
+    console.error('Error saving audio:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});

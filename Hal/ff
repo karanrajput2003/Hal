@@ -1,0 +1,46 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+function RecordPage() {
+  const [transcription, setTranscription] = useState('');
+  const recognitionRef = useRef(null);
+
+  useEffect(() => {
+    // Check for browser support
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.error("Speech Recognition API is not supported in this browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onresult = (event) => {
+      const speechResult = event.results[0][0].transcript;
+      setTranscription(speechResult); // Update state with the transcription
+    };
+
+    recognition.onspeechend = () => recognition.stop();
+    recognition.onerror = (event) => console.error('Recognition error: ' + event.error);
+
+    recognitionRef.current = recognition; // Store the recognition instance in the ref
+  }, []);
+
+  const startRecording = () => {
+    // Start the speech recognition
+    if (recognitionRef.current) {
+      recognitionRef.current.start();
+    }
+  };
+
+  return (
+    <div>
+      <button onClick={startRecording}>Start Recording</button>
+      <p>Transcription: {transcription}</p>
+    </div>
+  );
+}
+
+export default RecordPage;

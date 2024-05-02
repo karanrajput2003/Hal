@@ -1,0 +1,224 @@
+const config = require("../config/auth.config");
+const db = require("../models");
+const asyncHandler = require('express-async-handler')
+const User = db.user;
+const Role = db.role;
+const Record = db.record;
+const multer = require('multer');
+const fs = require('fs');
+const path = require('path');
+
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+      cb(null, path.join(__dirname, 'public', 'images'));
+  },
+  filename: (req, file, cb) => {
+      const date = Date.now();
+      cb(null, `audio_${date}.mp3`);
+  }
+});
+
+const upload = multer({ storage });
+
+
+// const express = require("express");
+// const app = express();
+// var bodyParser = require('body-parser')
+
+// app.use(bodyParser.json({ limit: '50mb', extended: true }));
+// app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
+
+var jwt = require("jsonwebtoken");
+var bcrypt = require("bcryptjs");
+
+exports.signup = (req, res) => {
+  const user = new User({
+    username: req.body.username,
+    email: req.body.email,
+    password: bcrypt.hashSync(req.body.password, 8)
+  });
+
+  user.save((err, user) => {
+    if (err) {
+      res.status(500).send({ message: err });
+      return;
+    }
+
+    if (req.body.roles) {
+      Role.find(
+        {
+          name: { $in: req.body.roles }
+        },
+        (err, roles) => {
+          if (err) {
+            res.status(500).send({ message: err });
+            return;
+          }
+
+          user.roles = roles.map(role => role._id);
+          user.save(err => {
+            if (err) {
+              res.status(500).send({ message: err });
+              return;
+            }
+            res.status(201).json({
+              _id: user._id,
+              username: user.username,
+              email: user.email,
+            })
+          });
+        }
+      );
+    } else {
+      Role.findOne({ name: "user" }, (err, role) => {
+        if (err) {
+          res.status(500).send({ message: err });
+          return;
+        }
+
+        user.roles = [role._id];
+        user.save(err => {
+          if (err) {
+            res.status(500).send({ message: err });
+            return;
+          }
+          res.status(201).json({
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+          })
+          // res.send({ message: "User was registered successfully!" });
+        });
+      });
+    }
+  });
+};
+
+exports.signin = (req, res) => {
+  User.findOne({
+    username: req.body.username
+  })
+    .populate("roles", "-__v")
+    .exec((err, user) => {
+      if (err) {
+        res.status(500).send({ message: err });
+        return;
+      }
+
+      if (!user) {
+        return res.status(404).send({ message: "User Not found." });
+      }
+
+      var passwordIsValid = bcrypt.compareSync(
+        req.body.password,
+        user.password
+      );
+
+      if (!passwordIsValid) {
+        return res.status(401).send({
+          accessToken: null,
+          message: "Invalid Password!"
+        });
+      }
+
+      const token = jwt.sign({ id: user.id },
+                              process.env.JWT_SECRET_KEY,
+                              {
+                                algorithm: 'HS256',
+                                allowInsecureKeySizes: true,
+                                expiresIn: 86400, // 24 hours
+                              });
+                              
+      var authorities = [];
+
+      for (let i = 0; i < user.roles.length; i++) {
+        authorities.push("ROLE_" + user.roles[i].name.toUpperCase());
+      }
+      res.cookie(String(user._id), token,{
+        path: '/',
+        expires: new Date(Date.now() + 1000 *60*60),
+        httpOnly: true,
+        sameSite: 'lax'
+    });
+      res.status(200).json({
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        roles: authorities,
+        accessToken: token
+      });
+    });
+};
+
+
+exports.logout = (req, res) => {
+  const cookie = req.headers.cookie;
+
+  if (!cookie) {
+      return res.status(403).send({ message: "No cookie provided!" });
+  }
+
+  const token = cookie.split("=")[1];
+
+  if (!token) {
+      return res.status(403).send({ message: "No token provided!" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET_KEY, (err, decoded) => {
+      if (err) {
+          return res.status(401).send({
+              message: "Unauthorized!",
+          });
+      }
+
+      const userId = decoded.id;
+
+      res.clearCookie(`${userId}`);
+      return res.status(200).json({ message: "Successfully Logged Out" });
+  });
+};
+
+const fs = require('fs');
+exports.senddata = (req, res) => {
+  console.log("hll")
+  // const data = new Record({
+  //   mdate: req.body.base,
+  // });
+
+  const binaryData = Buffer.from(req.body.base, 'base64');
+
+
+  const date = Date.now();
+  fs.writeFileSync(`./public/images/'audio_${date}.mp3`, binaryData);
+
+  // console.log(blob)
+
+  // console.log(req.body.base)
+  // data.save((err, user) => {
+  //   if (err) {
+  //     res.status(500).send({ message: err });
+  //     return;
+  //   }
+  //   else {
+  //     res.status(200).send({ user });
+
+  //   }
+  // });
+};
+
+exports.getdata = async (req, res) => {
+  email = req.query.email;
+  mdate = req.query.mdate;
+  // console.log(author)
+  let course;
+  try {
+    course = await Record.find({ email: email, mdate: mdate });
+  } catch (error) {
+    return new Error(error);
+  }
+  if (!course || course.length === 0) {
+    return res.status(404).json({ message: "No quiz found for the given author." });
+  }
+  return res.status(200).json({ course  });
+};
+
